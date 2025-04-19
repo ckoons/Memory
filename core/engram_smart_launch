@@ -1,0 +1,13 @@
+#!/bin/bash
+# Engram Smart Launcher
+# Automatically selects the best vector database and launches Engram
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Make helper script executable
+chmod +x "$SCRIPT_DIR/utils/launch_best_vector_db.sh"
+
+# Execute the smart launcher, passing all arguments
+exec "$SCRIPT_DIR/utils/launch_best_vector_db.sh" "$@"

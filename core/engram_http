@@ -1,0 +1,73 @@
+#!/bin/bash
+# Engram HTTP Wrapper Startup Script
+# Run this to start the HTTP wrapper for tool-approval-free memory access
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Default values
+CLIENT_ID="claude"
+PORT=8001
+HOST="127.0.0.1"
+DATA_DIR="$HOME/.engram"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --client-id)
+      CLIENT_ID="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --data-dir)
+      DATA_DIR="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Engram HTTP Wrapper"
+      echo "Usage: engram_http [options]"
+      echo ""
+      echo "Options:"
+      echo "  --client-id <id>   Client ID for memory service (default: claude)"
+      echo "  --port <port>      Port to run the server on (default: 8001)"
+      echo "  --host <host>      Host to bind the server to (default: 127.0.0.1)"
+      echo "  --data-dir <dir>   Directory to store memory data (default: ~/.engram)"
+      echo "  --help             Show this help message"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run with --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Make sure the data directory exists
+mkdir -p "$DATA_DIR"
+
+# Check for virtual environment
+if [ -d "$SCRIPT_DIR/venv" ]; then
+    echo "Activating virtual environment..."
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
+echo "Starting Engram HTTP Wrapper..."
+echo "Client ID: $CLIENT_ID"
+echo "Server: $HOST:$PORT"
+echo "Data directory: $DATA_DIR"
+echo ""
+echo "Access with curl: curl http://$HOST:$PORT/health"
+echo "Press Ctrl+C to stop the server"
+echo ""
+
+# Start the server
+python -m engram.api.http_wrapper --client-id "$CLIENT_ID" --port "$PORT" --host "$HOST" --data-dir "$DATA_DIR"

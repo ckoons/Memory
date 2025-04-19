@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""
+Engram MCP Server Launcher
+
+Launches the Engram MCP Server for Multi-Capability Provider protocol support.
+"""
+
+import os
+import sys
+import argparse
+
+# Get the project root (2 levels up from core/mcp/)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, "../.."))
+sys.path.insert(0, project_root)
+
+from engram.api.mcp_server import main
+
+if __name__ == "__main__":
+    # Set up environment
+    os.environ["ENGRAM_USE_FALLBACK"] = os.environ.get("ENGRAM_USE_FALLBACK", "0")
+    
+    # Parse and pass through any additional arguments
+    parser = argparse.ArgumentParser(description="Engram MCP Server")
+    parser.add_argument("--client-id", type=str, default=None, help="Client ID for memory service")
+    parser.add_argument("--port", type=int, default=None, help="Port to run the server on")
+    parser.add_argument("--host", type=str, default=None, help="Host to bind the server to")
+    parser.add_argument("--data-dir", type=str, default=None, help="Directory to store memory data")
+    parser.add_argument("--config", type=str, default=None, help="Path to custom config file")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--fallback", action="store_true", help="Use fallback file-based implementation")
+    
+    args = parser.parse_args()
+    
+    # Handle fallback flag
+    if args.fallback:
+        os.environ["ENGRAM_USE_FALLBACK"] = "1"
+        print("Fallback mode enabled - using file-based implementation without vector database")
+    
+    # Run the server
+    main()

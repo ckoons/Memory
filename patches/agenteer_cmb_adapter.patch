@@ -1,0 +1,122 @@
+--- agenteer/core/memory/cmb_adapter.py
++++ agenteer/core/memory/cmb_adapter.py
+@@ -25,20 +25,39 @@
+     # Direct imports from ClaudeMemoryBridge
+     from cmb.cli.quickmem import (
+         status, process_message, start_nexus, end_nexus, auto_remember,
+-        memory_digest, s, q, n, y, z, d
++        memory_digest, s, q, n, y, z, d,
+     )
+     
+     # Check if we can import core modules directly
+-    try:
+-        from cmb.core.structured_memory import StructuredMemory
+-        from cmb.core.nexus import NexusInterface
+-        from cmb.core.memory import MemoryService as CmbMemoryService
+-        HAS_CMB_CORE = True
+-    except ImportError:
+-        HAS_CMB_CORE = False
++    from cmb.core.structured_memory import StructuredMemory
++    from cmb.core.nexus import NexusInterface
++    from cmb.core.memory import MemoryService as CmbMemoryService
++    HAS_CMB_CORE = True
+         
+     HAS_CMB = True
+ except ImportError:
+     HAS_CMB = False
+     HAS_CMB_CORE = False
+     logger.warning("ClaudeMemoryBridge not installed. Using fallback file-based memory.")
+ 
+ # Default HTTP URL for the CMB wrapper if using HTTP API
+-DEFAULT_CMB_HTTP_URL = "http://127.0.0.1:8001"
++DEFAULT_CMB_HTTP_URL = "http://127.0.0.1:8000"
+ 
+ def _get_cmb_http_url():
+     """Get the HTTP URL for CMB wrapper."""
+-    return os.environ.get("CMB_HTTP_URL", DEFAULT_CMB_HTTP_URL)
++    return os.environ.get("ENGRAM_HTTP_URL", os.environ.get("CMB_HTTP_URL", DEFAULT_CMB_HTTP_URL))
+ 
+ def _safe_string(text: str) -> str:
+     """URL-encode a string to make it safe for GET requests."""
+@@ -53,24 +71,30 @@
+     """
+     # Try to use quickmem status function if CMB is installed
+     if HAS_CMB:
+-        try:
+-            # Use asyncio to run the async function if needed
+-            if asyncio.iscoroutinefunction(status):
+-                loop = asyncio.get_event_loop()
+-                return loop.run_until_complete(status(start_if_not_running))
+-            else:
+-                return status(start_if_not_running)
+-        except Exception as e:
+-            logger.error(f"Error checking CMB status: {e}")
+-            return False
+-            
++        # First check if services are running using pgrep
++        try:
++            import subprocess
++            result = subprocess.run(
++                ["pgrep", "-f", "engram.api.consolidated_server|cmb.api.consolidated_server"],
++                capture_output=True
++            )
++            if result.returncode == 0:
++                return True
++        except:
++            # Fall back to quickmem status function
++            try:
++                # Use asyncio to run the async function if needed
++                if asyncio.iscoroutinefunction(status):
++                    loop = asyncio.get_event_loop()
++                    return loop.run_until_complete(status(start_if_not_running))
++                else:
++                    return status(start_if_not_running)
++            except Exception as e:
++                logger.error(f"Error checking CMB status: {e}")
++                return False
++    
+     # Try checking HTTP API directly
+     try:
+-        url = f"{_get_cmb_http_url()}/health"
+-        with urllib.request.urlopen(url, timeout=2) as response:
++        url = f"{_get_cmb_http_url()}/http/health"
++        with urllib.request.urlopen(url, timeout=3) as response:
+             health_data = json.loads(response.read().decode())
+             return health_data.get("status") == "ok"
+     except Exception as e:
+@@ -93,6 +117,8 @@
+         self.client_id = f"agenteer_{agent_id}"
+         
+         # Check if CMB is available
++        os.environ["ENGRAM_CLIENT_ID"] = self.client_id
++        os.environ["CMB_CLIENT_ID"] = self.client_id  # For backwards compatibility
+         self.cmb_available = _check_cmb_status()
+         
+         # For fallback: initialize file storage
+@@ -199,7 +225,7 @@
+                 metadata = json.dumps({"user_id": user_id, "agent_id": self.agent_id, "session_id": self.session_id})
+                 
+                 # Auto-categorize the memory
+-                url = f"{_get_cmb_http_url()}/structured/auto?content={_safe_string(content)}&metadata={_safe_string(metadata)}"
++                url = f"{_get_cmb_http_url()}/http/structured/auto?content={_safe_string(content)}&metadata={_safe_string(metadata)}"
+                 with urllib.request.urlopen(url) as response:
+                     result = json.loads(response.read().decode())
+                     return result.get("success", False)
+@@ -258,7 +284,7 @@
+                     return {"results": formatted_results}
+                 
+                 # Use HTTP API if direct access not available
+-                url = f"{_get_cmb_http_url()}/structured/search?query={_safe_string(query)}&limit={limit}"
++                url = f"{_get_cmb_http_url()}/http/structured/search?query={_safe_string(query)}&limit={limit}"
+                 with urllib.request.urlopen(url) as response:
+                     result = json.loads(response.read().decode())
+                     
+@@ -325,7 +351,7 @@
+                     return await self.nexus.process_message(query, is_user=True)
+                 
+                 # Use HTTP API if direct access not available
+-                url = f"{_get_cmb_http_url()}/nexus/process?message={_safe_string(query)}&is_user=true"
++                url = f"{_get_cmb_http_url()}/http/nexus/process?message={_safe_string(query)}&is_user=true"
+                 with urllib.request.urlopen(url) as response:
+                     result = json.loads(response.read().decode())
+                     if result.get("success", False):

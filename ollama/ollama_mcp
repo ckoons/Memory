@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""
+Ollama MCP Server Launcher
+
+This script launches the Ollama MCP server, providing Ollama language model
+services via the Multi-Capability Provider (MCP) protocol.
+"""
+
+import os
+import sys
+import argparse
+import logging
+from pathlib import Path
+
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("ollama_mcp_launcher")
+
+# Get the directory containing this script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Ollama MCP Server Launcher")
+    parser.add_argument("--ollama-host", type=str, default="http://localhost:11434",
+                      help="Ollama API host URL")
+    parser.add_argument("--port", type=int, default=8002,
+                      help="Port to run the MCP server on")
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+                      help="Host to bind the server to")
+    parser.add_argument("--client-id", type=str, default="ollama",
+                      help="Client ID for memory integration")
+    parser.add_argument("--debug", action="store_true",
+                      help="Enable debug logging")
+    return parser.parse_args()
+
+def check_dependencies():
+    """Check required dependencies and modules."""
+    try:
+        import fastapi
+        import uvicorn
+        import engram
+        logger.info("Required dependencies found")
+        return True
+    except ImportError as e:
+        logger.error(f"Missing required dependency: {e}")
+        logger.error("Please install required packages: pip install fastapi uvicorn engram")
+        return False
+
+def check_ollama_availability(host):
+    """Check if Ollama is available."""
+    import requests
+    try:
+        response = requests.get(f"{host}/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            model_names = [model["name"] for model in models]
+            logger.info(f"Ollama is available with {len(models)} models")
+            logger.info(f"Available models: {', '.join(model_names[:5])}...")
+            return True
+        else:
+            logger.warning(f"Ollama returned status code {response.status_code}")
+            return False
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Ollama is not accessible at {host}: {e}")
+        return False
+
+def main():
+    """Main function to launch the Ollama MCP server."""
+    args = parse_args()
+    
+    # Set log level based on debug flag
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
+    
+    # Check dependencies
+    if not check_dependencies():
+        sys.exit(1)
+    
+    # Check Ollama availability
+    if not check_ollama_availability(args.ollama_host):
+        logger.warning("Proceeding even though Ollama API seems unavailable")
+    
+    # Set environment variables
+    os.environ["OLLAMA_HOST"] = args.ollama_host
+    os.environ["ENGRAM_CLIENT_ID"] = args.client_id
+    
+    logger.info(f"Starting Ollama MCP server on {args.host}:{args.port}")
+    logger.info(f"Ollama API host: {args.ollama_host}")
+    logger.info(f"Client ID for memory integration: {args.client_id}")
+    
+    # Import the server module
+    try:
+        from engram.api.ollama_mcp_server import main as server_main
+        
+        # Pass our args to the server via environment variables
+        os.environ["OLLAMA_MCP_HOST"] = args.host
+        os.environ["OLLAMA_MCP_PORT"] = str(args.port)
+        if args.debug:
+            os.environ["DEBUG"] = "1"
+        
+        # Launch the server
+        server_main()
+    except ImportError as e:
+        logger.error(f"Failed to import Ollama MCP server: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Error launching Ollama MCP server: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,128 @@
+#!/bin/bash
+# Engram launcher with LanceDB vector database support
+# This script integrates Engram with LanceDB for vector operations
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Check if LanceDB is available
+python -c "import lancedb" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "LanceDB not installed. Installing..."
+    python vector/lancedb/install.py
+    if [ $? -ne 0 ]; then
+        echo "Failed to install LanceDB. Exiting."
+        exit 1
+    fi
+fi
+
+# Create the memories directory if it doesn't exist
+mkdir -p memories/lancedb
+
+# Check if running with a specific model
+MODEL=""
+if [ "$1" == "-m" ] && [ -n "$2" ]; then
+    MODEL="$2"
+    shift 2
+fi
+
+# Check for Apple Silicon for optimizations
+if [[ "$(uname -m)" == "arm64" ]] && [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "Running on Apple Silicon, optimizing for Metal..."
+    export LANCEDB_USE_METAL=1
+fi
+
+# Check for CUDA for optimizations
+CUDA_AVAILABLE=$(python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null)
+if [ "$CUDA_AVAILABLE" == "True" ]; then
+    echo "CUDA detected, enabling GPU acceleration..."
+    export LANCEDB_USE_CUDA=1
+fi
+
+# Run Engram with LanceDB integration
+echo "Starting Engram with LanceDB vector database..."
+echo "Initializing vector storage in: memories/lancedb"
+
+# Import path setup
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
+# Launch with LanceDB adapter
+if [ -n "$MODEL" ]; then
+    python -c "
+import sys
+import os
+from pathlib import Path
+import subprocess
+
+# Add script directory to Python path
+script_dir = Path('${SCRIPT_DIR}')
+sys.path.insert(0, str(script_dir))
+
+# Import LanceDB adapter
+from vector.lancedb.adapter import install_lancedb_adapter
+
+# Install adapter
+success = install_lancedb_adapter()
+if not success:
+    print('Failed to install LanceDB adapter')
+    sys.exit(1)
+
+# Launch Claude with memory functions loaded
+print('Starting Engram with Claude...')
+
+# Set environment variables for Claude
+os.environ['ENGRAM_CLIENT_ID'] = 'claude'
+
+# Construct Claude launch command with memory functions
+cmd = [
+    'claude',
+    '--allowedTools=Bash(*),Edit,View,Replace,BatchTool,GlobTool,GrepTool,LS,ReadNotebook,NotebookEditCell,WebFetchTool'
+]
+
+# Add model argument if specified
+model = '${MODEL}'
+if model:
+    cmd.extend(['--model', model])
+
+# Launch Claude
+print(f'Launching Claude with memory functions loaded...')
+subprocess.run(cmd)
+"
+else
+    python -c "
+import sys
+import os
+from pathlib import Path
+import subprocess
+
+# Add script directory to Python path
+script_dir = Path('${SCRIPT_DIR}')
+sys.path.insert(0, str(script_dir))
+
+# Import LanceDB adapter
+from vector.lancedb.adapter import install_lancedb_adapter
+
+# Install adapter
+success = install_lancedb_adapter()
+if not success:
+    print('Failed to install LanceDB adapter')
+    sys.exit(1)
+
+# Launch Claude with memory functions loaded
+print('Starting Engram with Claude...')
+
+# Set environment variables for Claude
+os.environ['ENGRAM_CLIENT_ID'] = 'claude'
+
+# Construct Claude launch command with memory functions
+cmd = [
+    'claude',
+    '--allowedTools=Bash(*),Edit,View,Replace,BatchTool,GlobTool,GrepTool,LS,ReadNotebook,NotebookEditCell,WebFetchTool'
+]
+
+# Launch Claude
+print(f'Launching Claude with memory functions loaded...')
+subprocess.run(cmd)
+"
+fi

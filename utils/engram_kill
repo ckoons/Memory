@@ -1,0 +1,127 @@
+#!/bin/bash
+# engram_kill.sh
+# Utility to completely stop all Engram processes and free ports
+# Created: March 22, 2025
+
+# ANSI color codes for terminal output
+BLUE="\033[94m"
+GREEN="\033[92m"
+YELLOW="\033[93m"
+RED="\033[91m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+echo -e "${BOLD}${RED}====== Stopping ALL Engram Processes ======${RESET}"
+
+# Check for running processes
+ENGRAM_HTTP_PIDS=$(pgrep -f "engram.api.consolidated_server" 2>/dev/null)
+ENGRAM_MCP_PIDS=$(pgrep -f "engram.api.mcp_server" 2>/dev/null)
+SCRIPTS_RUNNING=$(pgrep -f "engram_consolidated|engram_with_claude|engram_mcp|engram_dual" 2>/dev/null)
+
+if [ -z "$ENGRAM_HTTP_PIDS" ] && [ -z "$ENGRAM_MCP_PIDS" ] && [ -z "$SCRIPTS_RUNNING" ]; then
+    echo -e "${GREEN}No Engram processes found running${RESET}"
+else
+    # Kill HTTP server processes
+    if [ -n "$ENGRAM_HTTP_PIDS" ]; then
+        echo -e "${YELLOW}Found Engram HTTP server processes:${RESET}"
+        for pid in $ENGRAM_HTTP_PIDS; do
+            ps -p $pid -o command= | sed "s/^/${BLUE}PID $pid:${RESET} /"
+        done
+        
+        echo -e "\n${YELLOW}Killing Engram HTTP server processes...${RESET}"
+        for pid in $ENGRAM_HTTP_PIDS; do
+            kill -15 $pid 2>/dev/null
+            echo -e "${GREEN}Sent SIGTERM to process $pid${RESET}"
+        done
+    fi
+    
+    # Kill MCP server processes
+    if [ -n "$ENGRAM_MCP_PIDS" ]; then
+        echo -e "${YELLOW}Found Engram MCP server processes:${RESET}"
+        for pid in $ENGRAM_MCP_PIDS; do
+            ps -p $pid -o command= | sed "s/^/${BLUE}PID $pid:${RESET} /"
+        done
+        
+        echo -e "\n${YELLOW}Killing Engram MCP server processes...${RESET}"
+        for pid in $ENGRAM_MCP_PIDS; do
+            kill -15 $pid 2>/dev/null
+            echo -e "${GREEN}Sent SIGTERM to process $pid${RESET}"
+        done
+    fi
+    
+    # Kill script processes
+    if [ -n "$SCRIPTS_RUNNING" ]; then
+        echo -e "\n${YELLOW}Found Engram script processes:${RESET}"
+        for pid in $SCRIPTS_RUNNING; do
+            ps -p $pid -o command= | sed "s/^/${BLUE}PID $pid:${RESET} /"
+        done
+        
+        echo -e "\n${YELLOW}Killing Engram script processes...${RESET}"
+        for pid in $SCRIPTS_RUNNING; do
+            kill -15 $pid 2>/dev/null
+            echo -e "${GREEN}Sent SIGTERM to process $pid${RESET}"
+        done
+    fi
+    
+    # Allow time for graceful shutdown
+    echo -e "\n${YELLOW}Waiting for processes to exit...${RESET}"
+    sleep 2
+    
+    # Check if any processes are still running
+    ENGRAM_HTTP_PIDS=$(pgrep -f "engram.api.consolidated_server" 2>/dev/null)
+    ENGRAM_MCP_PIDS=$(pgrep -f "engram.api.mcp_server" 2>/dev/null)
+    SCRIPTS_RUNNING=$(pgrep -f "engram_consolidated|engram_with_claude|engram_mcp|engram_dual" 2>/dev/null)
+    
+    if [ -n "$ENGRAM_HTTP_PIDS" ] || [ -n "$ENGRAM_MCP_PIDS" ] || [ -n "$SCRIPTS_RUNNING" ]; then
+        echo -e "${RED}Some processes are still running. Forcing termination...${RESET}"
+        pkill -9 -f "engram.api.consolidated_server" 2>/dev/null
+        pkill -9 -f "engram.api.mcp_server" 2>/dev/null
+        pkill -9 -f "engram_consolidated" 2>/dev/null
+        pkill -9 -f "engram_with_claude" 2>/dev/null
+        pkill -9 -f "engram_mcp" 2>/dev/null
+        pkill -9 -f "engram_dual" 2>/dev/null
+        sleep 1
+    fi
+fi
+
+# Check if ports are still in use
+echo -e "\n${BLUE}Checking for ports used by Engram...${RESET}"
+PORT_CHECK=$(lsof -i :8000,8001,8002 -t 2>/dev/null)
+
+if [ -n "$PORT_CHECK" ]; then
+    echo -e "${YELLOW}Found processes using Engram ports:${RESET}"
+    for pid in $PORT_CHECK; do
+        PORT=$(lsof -p $pid -a -i | grep -o ':[0-9]\+' | grep -o '[0-9]\+' | head -1)
+        COMMAND=$(ps -p $pid -o command= | head -c 50)
+        echo -e "${BLUE}PID $pid (Port $PORT):${RESET} $COMMAND"
+    done
+    
+    echo -e "\n${YELLOW}Freeing ports used by Engram...${RESET}"
+    for pid in $PORT_CHECK; do
+        kill -15 $pid 2>/dev/null
+        echo -e "${GREEN}Sent SIGTERM to process $pid${RESET}"
+    done
+    
+    # Final check after kill attempts
+    sleep 1
+    PORT_CHECK=$(lsof -i :8000,8001,8002 -t 2>/dev/null)
+    if [ -n "$PORT_CHECK" ]; then
+        echo -e "${RED}Some ports are still in use. Forcing termination...${RESET}"
+        for pid in $PORT_CHECK; do
+            kill -9 $pid 2>/dev/null
+            echo -e "${RED}Sent SIGKILL to process $pid${RESET}"
+        done
+    fi
+else
+    echo -e "${GREEN}No processes using Engram ports${RESET}"
+fi
+
+echo -e "\n${GREEN}${BOLD}All Engram processes have been terminated${RESET}"
+echo -e "${GREEN}${BOLD}Ports have been freed${RESET}"
+echo -e "\n${BLUE}You can now start a fresh Engram server with:${RESET}"
+echo -e "${YELLOW}# HTTP API only:${RESET}"
+echo -e "${YELLOW}cd ~/projects/github/Engram && ./engram_consolidated --background${RESET}"
+echo -e "\n${YELLOW}# MCP server only:${RESET}"
+echo -e "${YELLOW}cd ~/projects/github/Engram && ./engram_mcp${RESET}"
+echo -e "\n${YELLOW}# Both HTTP and MCP:${RESET}"
+echo -e "${YELLOW}cd ~/projects/github/Engram && ./engram_dual${RESET}"

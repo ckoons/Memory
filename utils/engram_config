@@ -1,0 +1,177 @@
+#!/bin/bash
+# Engram Configuration Utility
+# Manage settings for Engram memory services
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Color output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Check for virtual environment
+if [ -d "$SCRIPT_DIR/venv" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
+# Set PYTHONPATH to include the current directory
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
+# Default config file location
+DEFAULT_CONFIG_PATH="$HOME/.engram/config.json"
+CONFIG_PATH=${1:-$DEFAULT_CONFIG_PATH}
+
+# Print header
+echo -e "${BOLD}${BLUE}===== Engram Configuration Utility =====\n${NC}"
+
+# Helper function for interactive config
+configure_interactive() {
+    # Create temporary settings file
+    TMP_CONFIG=$(mktemp)
+    
+    echo -e "${BLUE}Engram will be configured with your preferences.${NC}"
+    echo -e "${YELLOW}Press Enter to accept default values shown in [brackets].${NC}\n"
+    
+    # Client ID
+    read -p "Client ID [claude]: " CLIENT_ID
+    CLIENT_ID=${CLIENT_ID:-claude}
+    echo "client_id=$CLIENT_ID" >> $TMP_CONFIG
+    
+    # Data directory
+    read -p "Data directory [~/.engram]: " DATA_DIR
+    DATA_DIR=${DATA_DIR:-~/.engram}
+    echo "data_dir=$DATA_DIR" >> $TMP_CONFIG
+    
+    # Server settings
+    echo -e "\n${BLUE}Server Settings:${NC}"
+    read -p "Host [127.0.0.1]: " HOST
+    HOST=${HOST:-127.0.0.1}
+    echo "host=$HOST" >> $TMP_CONFIG
+    
+    read -p "Port [8000]: " PORT
+    PORT=${PORT:-8000}
+    echo "port=$PORT" >> $TMP_CONFIG
+    
+    # Feature settings
+    echo -e "\n${BLUE}Feature Settings:${NC}"
+    read -p "Enable automatic agency? (y/n) [y]: " AUTO_AGENCY
+    AUTO_AGENCY=${AUTO_AGENCY:-y}
+    if [[ $AUTO_AGENCY =~ ^[Yy]$ ]]; then
+        echo "auto_agency=true" >> $TMP_CONFIG
+    else
+        echo "auto_agency=false" >> $TMP_CONFIG
+    fi
+    
+    read -p "Enable debug mode? (y/n) [n]: " DEBUG
+    DEBUG=${DEBUG:-n}
+    if [[ $DEBUG =~ ^[Yy]$ ]]; then
+        echo "debug=true" >> $TMP_CONFIG
+    else
+        echo "debug=false" >> $TMP_CONFIG
+    fi
+    
+    # Memory settings
+    echo -e "\n${BLUE}Memory Settings:${NC}"
+    read -p "Default importance level (1-5) [3]: " IMPORTANCE
+    IMPORTANCE=${IMPORTANCE:-3}
+    echo "default_importance=$IMPORTANCE" >> $TMP_CONFIG
+    
+    read -p "Max memories per request [10]: " MAX_MEMORIES
+    MAX_MEMORIES=${MAX_MEMORIES:-10}
+    echo "max_memories_per_request=$MAX_MEMORIES" >> $TMP_CONFIG
+    
+    # Advanced settings
+    echo -e "\n${BLUE}Advanced Settings:${NC}"
+    read -p "Memory expiration days [90]: " EXPIRATION
+    EXPIRATION=${EXPIRATION:-90}
+    echo "memory_expiration_days=$EXPIRATION" >> $TMP_CONFIG
+    
+    read -p "Enable vector search? (y/n) [y]: " VECTOR_SEARCH
+    VECTOR_SEARCH=${VECTOR_SEARCH:-y}
+    if [[ $VECTOR_SEARCH =~ ^[Yy]$ ]]; then
+        echo "vector_search_enabled=true" >> $TMP_CONFIG
+    else
+        echo "vector_search_enabled=false" >> $TMP_CONFIG
+    fi
+    
+    # Save the configuration
+    echo -e "\n${BLUE}Saving configuration...${NC}"
+    
+    # Convert temp file to parameter format
+    CONFIG_PARAMS=""
+    while IFS= read -r line; do
+        KEY=$(echo $line | cut -d= -f1)
+        VALUE=$(echo $line | cut -d= -f2)
+        CONFIG_PARAMS="$CONFIG_PARAMS --set $KEY $VALUE"
+    done < $TMP_CONFIG
+    
+    # Run Python config utility to save
+    python -m engram.core.config $CONFIG_PARAMS --save --config "$CONFIG_PATH"
+    RESULT=$?
+    
+    # Clean up temporary file
+    rm $TMP_CONFIG
+    
+    if [ $RESULT -eq 0 ]; then
+        echo -e "${GREEN}Configuration saved to $CONFIG_PATH${NC}"
+    else
+        echo -e "${RED}Error saving configuration${NC}"
+    fi
+}
+
+# Determine mode based on arguments
+if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    echo "Usage: $0 [OPTION]"
+    echo ""
+    echo "Options:"
+    echo "  --interactive, -i  Interactive configuration mode"
+    echo "  --show, -s         Show current configuration"
+    echo "  --edit, -e         Open configuration in text editor"
+    echo "  --reset, -r        Reset to default configuration"
+    echo "  --path PATH        Use custom config path (default: $DEFAULT_CONFIG_PATH)"
+    echo "  --help, -h         Show this help message"
+    exit 0
+elif [ "$1" == "--interactive" ] || [ "$1" == "-i" ]; then
+    # Interactive configuration
+    configure_interactive
+elif [ "$1" == "--show" ] || [ "$1" == "-s" ]; then
+    # Show current configuration
+    python -m engram.core.config --config "$CONFIG_PATH"
+elif [ "$1" == "--edit" ] || [ "$1" == "-e" ]; then
+    # Create default config if it doesn't exist
+    if [ ! -f "$CONFIG_PATH" ]; then
+        python -m engram.core.config --save --config "$CONFIG_PATH"
+    fi
+    
+    # Open with preferred editor
+    if [ -n "$EDITOR" ]; then
+        $EDITOR "$CONFIG_PATH"
+    elif command -v nano > /dev/null; then
+        nano "$CONFIG_PATH"
+    elif command -v vim > /dev/null; then
+        vim "$CONFIG_PATH"
+    else
+        echo -e "${RED}No text editor found. Please set the EDITOR environment variable.${NC}"
+        exit 1
+    fi
+elif [ "$1" == "--reset" ] || [ "$1" == "-r" ]; then
+    # Reset to default configuration
+    echo -e "${YELLOW}This will reset all settings to default. Continue? (y/n)${NC}"
+    read CONFIRM
+    if [[ $CONFIRM =~ ^[Yy]$ ]]; then
+        # Create a new default config
+        python -m engram.core.config --save --config "$CONFIG_PATH"
+        echo -e "${GREEN}Configuration reset to defaults${NC}"
+    else
+        echo -e "${YELLOW}Reset cancelled${NC}"
+    fi
+else
+    # Default to interactive mode if no argument is provided
+    configure_interactive
+fi
+
+echo -e "\n${BLUE}Engram configuration complete!${NC}"

@@ -1,0 +1,83 @@
+#!/bin/bash
+# Start all Engram memory services including the web UI
+
+# Find the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Parse command line arguments
+HOST="127.0.0.1"
+PORT=8002
+DEBUG=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --debug)
+      DEBUG=true
+      shift
+      ;;
+    --help)
+      echo "Usage: ./engram_start_web [options]"
+      echo ""
+      echo "Options:"
+      echo "  --host HOST      Host to bind the web UI to (default: 127.0.0.1)"
+      echo "  --port PORT      Port for the web UI (default: 8002)"
+      echo "  --debug          Run the web UI in debug mode"
+      echo "  --help           Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+echo "Starting Engram with Web UI..."
+echo ""
+echo "1. Starting consolidated memory service..."
+nohup ./engram_consolidated > engram.log 2>&1 &
+ENGRAM_PID=$!
+echo "   Consolidated memory service started (PID: $ENGRAM_PID)"
+
+# Wait a moment for the memory service to initialize
+sleep 2
+
+echo "2. Starting web UI on $HOST:$PORT..."
+if [ "$DEBUG" = true ]; then
+  echo "   Running in debug mode"
+  WEB_CMD="python -m engram.web.app --host $HOST --port $PORT --debug"
+else
+  WEB_CMD="python -m engram.web.app --host $HOST --port $PORT"
+fi
+
+echo ""
+echo "All services started!"
+echo "- Consolidated service: http://127.0.0.1:8000"
+echo "- Memory API:           http://127.0.0.1:8000/memory/*"
+echo "- HTTP API:             http://127.0.0.1:8000/http/*" 
+echo "- Web UI:               http://$HOST:$PORT"
+echo ""
+echo "Access the web interface at: http://$HOST:$PORT"
+echo ""
+echo "To stop all services, run: pkill -f 'engram.api.consolidated|engram.web.app|engram_consolidated'"
+echo ""
+echo "Starting web UI in the foreground (press Ctrl+C to stop all services)..."
+echo ""
+
+# Run the web UI in the foreground
+$WEB_CMD
+
+# When the web UI is stopped, also stop the other services
+echo "Stopping services..."
+kill $ENGRAM_PID
+echo "All services stopped"

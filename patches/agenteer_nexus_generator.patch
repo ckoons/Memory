@@ -1,0 +1,21 @@
+--- agenteer/core/agents/generators/nexus/generator.py.orig
++++ agenteer/core/agents/generators/nexus/generator.py
+@@ -73,8 +73,16 @@
+ 
+ # Try to import ClaudeMemoryBridge directly (optional)
+ try:
+-    from cmb.cli.quickmem import auto_remember, memory_digest, z, d
+-    HAS_CMB_DIRECT = True
++    # Try engram package first
++    try:
++        from engram.cli.quickmem import auto_remember, memory_digest, z, d
++        HAS_CMB_DIRECT = True
++        logger.info("Using Engram package for Nexus agent")
++    except ImportError:
++        # Fall back to legacy cmb package
++        from cmb.cli.quickmem import auto_remember, memory_digest, z, d
++        HAS_CMB_DIRECT = True
++        logger.info("Using legacy CMB package for Nexus agent")
+ except ImportError:
+     HAS_CMB_DIRECT = False
+ 

@@ -1,0 +1,2 @@
+[console_scripts]
+engram-server = engram.api.server:main

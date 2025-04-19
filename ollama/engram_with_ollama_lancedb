@@ -1,0 +1,76 @@
+#!/bin/bash
+# Engram launcher with Ollama and LanceDB vector database support
+# This script integrates Engram with both Ollama and LanceDB
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Check if LanceDB is available
+python -c "import lancedb" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "LanceDB not installed. Installing..."
+    python vector/lancedb/install.py
+    if [ $? -ne 0 ]; then
+        echo "Failed to install LanceDB. Exiting."
+        exit 1
+    fi
+fi
+
+# Create the memories directory if it doesn't exist
+mkdir -p memories/lancedb
+
+# Check for Apple Silicon for optimizations
+if [[ "$(uname -m)" == "arm64" ]] && [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "Running on Apple Silicon, optimizing for Metal..."
+    export LANCEDB_USE_METAL=1
+fi
+
+# Check for CUDA for optimizations
+CUDA_AVAILABLE=$(python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null)
+if [ "$CUDA_AVAILABLE" == "True" ]; then
+    echo "CUDA detected, enabling GPU acceleration..."
+    export LANCEDB_USE_CUDA=1
+fi
+
+# Ensure Ollama is running
+echo "Checking if Ollama is running..."
+if ! curl -s http://localhost:11434/api/version > /dev/null; then
+    echo "Ollama is not running. Please start Ollama first."
+    exit 1
+fi
+
+# Run Engram with LanceDB and Ollama integration
+echo "Starting Engram with LanceDB vector database and Ollama..."
+echo "Initializing vector storage in: memories/lancedb"
+
+# Import path setup
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
+# Launch with LanceDB adapter and Ollama
+python -c "
+import sys
+import os
+from pathlib import Path
+import subprocess
+
+# Add script directory to Python path
+script_dir = Path('${SCRIPT_DIR}')
+sys.path.insert(0, str(script_dir))
+
+# Import LanceDB adapter
+from vector.lancedb.adapter import install_lancedb_adapter
+
+# Install adapter
+success = install_lancedb_adapter()
+if not success:
+    print('Failed to install LanceDB adapter')
+    sys.exit(1)
+
+# Launch Engram with Ollama and LanceDB
+print('Starting Engram with Ollama and LanceDB')
+
+# Run the original ollama bridge script 
+# Using subprocess to avoid import issues
+subprocess.run(['python', 'ollama_bridge.py'] + sys.argv[1:])
+"

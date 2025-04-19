@@ -1,0 +1,72 @@
+#!/bin/bash
+# Engram Memory Server Startup Script
+# This script starts the core memory server service from any directory
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Default values
+CLIENT_ID="claude"
+PORT=8000
+HOST="127.0.0.1"
+DATA_DIR="$HOME/.engram"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --client-id)
+      CLIENT_ID="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --data-dir)
+      DATA_DIR="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Engram Memory Server"
+      echo "Usage: engram_server [options]"
+      echo ""
+      echo "Options:"
+      echo "  --client-id <id>   Client ID for memory service (default: claude)"
+      echo "  --port <port>      Port to run the server on (default: 8000)"
+      echo "  --host <host>      Host to bind the server to (default: 127.0.0.1)"
+      echo "  --data-dir <dir>   Directory to store memory data (default: ~/.engram)"
+      echo "  --help             Show this help message"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run with --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Make sure the data directory exists
+mkdir -p "$DATA_DIR"
+
+# Check for virtual environment
+if [ -d "$SCRIPT_DIR/venv" ]; then
+    echo "Activating virtual environment..."
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
+echo "Starting Engram Memory Server..."
+echo "Client ID: $CLIENT_ID"
+echo "Server: $HOST:$PORT"
+echo "Data directory: $DATA_DIR"
+echo ""
+echo "Press Ctrl+C to stop the server"
+echo ""
+
+# Start the server
+python -m engram.api.server --client-id "$CLIENT_ID" --port "$PORT" --host "$HOST" --data-dir "$DATA_DIR"

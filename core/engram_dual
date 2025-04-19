@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""
+Engram Dual Server Launcher
+
+Launches both the HTTP and MCP servers for Engram memory system.
+"""
+
+import os
+import sys
+import argparse
+import subprocess
+import signal
+import time
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(script_dir)
+
+def main():
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Engram Dual Server (HTTP + MCP)")
+    parser.add_argument("--client-id", type=str, default=None, help="Client ID for memory service")
+    parser.add_argument("--http-port", type=int, default=8000, help="Port for HTTP server")
+    parser.add_argument("--mcp-port", type=int, default=8001, help="Port for MCP server")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind servers to")
+    parser.add_argument("--data-dir", type=str, default=None, help="Directory to store memory data")
+    parser.add_argument("--fallback", action="store_true", help="Use fallback implementation")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    
+    args = parser.parse_args()
+    
+    # Prepare environment variables
+    env = os.environ.copy()
+    
+    if args.client_id:
+        env["ENGRAM_CLIENT_ID"] = args.client_id
+    if args.data_dir:
+        env["ENGRAM_DATA_DIR"] = args.data_dir
+    if args.fallback:
+        env["ENGRAM_USE_FALLBACK"] = "1"
+    
+    # Prepare command arguments
+    http_cmd = [
+        sys.executable, f"{project_root}/engram_consolidated",
+        "--host", args.host,
+        "--port", str(args.http_port)
+    ]
+    
+    mcp_cmd = [
+        sys.executable, f"{project_root}/engram_mcp",
+        "--host", args.host,
+        "--port", str(args.mcp_port)
+    ]
+    
+    # Add optional arguments
+    if args.client_id:
+        http_cmd.extend(["--client-id", args.client_id])
+        mcp_cmd.extend(["--client-id", args.client_id])
+    
+    if args.data_dir:
+        http_cmd.extend(["--data-dir", args.data_dir])
+        mcp_cmd.extend(["--data-dir", args.data_dir])
+    
+    if args.debug:
+        http_cmd.append("--debug")
+        mcp_cmd.append("--debug")
+    
+    if args.fallback:
+        http_cmd.append("--fallback")
+        mcp_cmd.append("--fallback")
+    
+    # Start servers
+    print(f"Starting HTTP server on {args.host}:{args.http_port}")
+    http_process = subprocess.Popen(http_cmd, env=env)
+    
+    print(f"Starting MCP server on {args.host}:{args.mcp_port}")
+    mcp_process = subprocess.Popen(mcp_cmd, env=env)
+    
+    # Register signal handlers
+    def handle_signal(sig, frame):
+        print("\nShutting down servers...")
+        http_process.terminate()
+        mcp_process.terminate()
+        http_process.wait(timeout=5)
+        mcp_process.wait(timeout=5)
+        print("Servers stopped")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+    
+    # Print status
+    print(f"\nEngram Dual Server started")
+    print(f"HTTP Server: http://{args.host}:{args.http_port}")
+    print(f"MCP Server:  http://{args.host}:{args.mcp_port}")
+    print(f"Client ID:   {args.client_id or env.get('ENGRAM_CLIENT_ID', 'claude')}")
+    print(f"Data Dir:    {args.data_dir or env.get('ENGRAM_DATA_DIR', '~/.engram')}")
+    print(f"Fallback:    {args.fallback or env.get('ENGRAM_USE_FALLBACK') == '1'}")
+    print("\nPress Ctrl+C to stop both servers")
+    
+    # Wait for processes
+    try:
+        while http_process.poll() is None and mcp_process.poll() is None:
+            time.sleep(1)
+        
+        # Check if either process died
+        if http_process.poll() is not None:
+            print(f"HTTP server exited with code {http_process.returncode}")
+            if mcp_process.poll() is None:
+                mcp_process.terminate()
+                mcp_process.wait(timeout=5)
+        
+        if mcp_process.poll() is not None:
+            print(f"MCP server exited with code {mcp_process.returncode}")
+            if http_process.poll() is None:
+                http_process.terminate()
+                http_process.wait(timeout=5)
+    
+    except KeyboardInterrupt:
+        print("\nShutting down servers...")
+        http_process.terminate()
+        mcp_process.terminate()
+        http_process.wait(timeout=5)
+        mcp_process.wait(timeout=5)
+        print("Servers stopped")
+
+if __name__ == "__main__":
+    main()

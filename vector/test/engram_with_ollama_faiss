@@ -1,0 +1,132 @@
+#!/bin/bash
+# Engram with Ollama FAISS - Direct FAISS-based memory without NumPy 2.x issues
+# This script launches Ollama with a FAISS-based memory system that works with NumPy 2.x
+
+# Get the directory where the Engram files are located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGRAM_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Default values
+MODEL="llama3:8b"
+CLIENT_ID="ollama"
+VECTOR_DIM=128
+USE_GPU=false
+MEMORY_DIR="$SCRIPT_DIR/test_memories"
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
+    --client-id)
+      CLIENT_ID="$2"
+      shift 2
+      ;;
+    --vector-dim)
+      VECTOR_DIM="$2"
+      shift 2
+      ;;
+    --use-gpu)
+      USE_GPU=true
+      shift
+      ;;
+    --memory-dir)
+      MEMORY_DIR="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Engram with Ollama FAISS - Direct FAISS-based memory without NumPy 2.x issues"
+      echo ""
+      echo "Usage: engram_with_ollama_faiss [options]"
+      echo ""
+      echo "Options:"
+      echo "  --model MODEL       Ollama model to use (default: llama3:8b)"
+      echo "  --client-id ID      Client ID for Engram (default: ollama)"
+      echo "  --vector-dim DIM    Vector dimension for embeddings (default: 128)"
+      echo "  --use-gpu           Use GPU for FAISS if available"
+      echo "  --memory-dir DIR    Directory to store memory files (default: ./test_memories)"
+      echo "  --help              Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Use --help to see available options"
+      exit 1
+      ;;
+  esac
+done
+
+# Store the current working directory
+CURRENT_DIR="$(pwd)"
+
+# Check if Ollama is running
+if ! curl -s http://localhost:11434/api/tags > /dev/null; then
+  echo "Error: Ollama is not running. Please start Ollama first."
+  exit 1
+fi
+
+# Check for required dependencies
+echo -e "\033[94mChecking for required dependencies...\033[0m"
+MISSING=false
+
+# Check for Python
+if ! command -v python3 &> /dev/null; then
+  echo -e "\033[91mPython 3 is not installed\033[0m"
+  MISSING=true
+fi
+
+# Check for FAISS
+if ! python3 -c "import faiss" &> /dev/null; then
+  echo -e "\033[93mFAISS not installed. Please install with: pip install faiss-cpu\033[0m"
+  MISSING=true
+fi
+
+# Check for NumPy
+if ! python3 -c "import numpy" &> /dev/null; then
+  echo -e "\033[93mNumPy not installed. Please install with: pip install numpy\033[0m"
+  MISSING=true
+else
+  NUMPY_VER=$(python3 -c "import numpy; print(numpy.__version__)" 2>/dev/null)
+  echo -e "\033[92mNumPy version $NUMPY_VER detected\033[0m"
+fi
+
+# Check for requests
+if ! python3 -c "import requests" &> /dev/null; then
+  echo -e "\033[93mRequests not installed. Please install with: pip install requests\033[0m"
+  MISSING=true
+fi
+
+if [ "$MISSING" = true ]; then
+  echo -e "\033[91mMissing dependencies. Please install them first.\033[0m"
+  exit 1
+fi
+
+# Create memory directory if it doesn't exist
+mkdir -p "$MEMORY_DIR"
+
+# Run the FAISS memory adapter with Ollama
+echo -e "\033[92mStarting Ollama with FAISS memory adapter...\033[0m"
+echo "Model: $MODEL"
+echo "Client ID: $CLIENT_ID"
+echo "Vector dimension: $VECTOR_DIM"
+echo "Memory directory: $MEMORY_DIR"
+if [ "$USE_GPU" = true ]; then
+  echo "GPU: Enabled (if available)"
+  GPU_FLAG="--use-gpu"
+else
+  echo "GPU: Disabled"
+  GPU_FLAG=""
+fi
+
+# Execute the Python script - use absolute paths to avoid directory issues
+FAISS_SCRIPT="$SCRIPT_DIR/vector/test/engram_with_faiss_simple.py"
+
+if [ ! -f "$FAISS_SCRIPT" ]; then
+  echo "❌ Error: FAISS script not found at $FAISS_SCRIPT"
+  exit 1
+fi
+
+echo "🔄 Running FAISS script: $FAISS_SCRIPT"
+python3 "$FAISS_SCRIPT" --model "$MODEL" --client-id "$CLIENT_ID" --vector-dimension "$VECTOR_DIM" $GPU_FLAG

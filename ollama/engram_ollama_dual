@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""
+Engram & Ollama MCP Dual Server Launcher
+
+This script launches both the Engram MCP server and Ollama MCP server,
+providing a complete MCP ecosystem for memory and language model services.
+"""
+
+import os
+import sys
+import argparse
+import subprocess
+import logging
+import time
+import signal
+import atexit
+from pathlib import Path
+
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("engram_ollama_dual_launcher")
+
+# Get the directory containing this script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+
+# Global process handles
+engram_process = None
+ollama_process = None
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Engram & Ollama MCP Dual Server Launcher")
+    parser.add_argument("--client-id", type=str, default="dual",
+                      help="Client ID for memory integration")
+    parser.add_argument("--data-dir", type=str, default=None,
+                      help="Data directory for Engram")
+    parser.add_argument("--engram-port", type=int, default=8001,
+                      help="Port for Engram MCP server")
+    parser.add_argument("--ollama-port", type=int, default=8002,
+                      help="Port for Ollama MCP server")
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+                      help="Host to bind both servers to")
+    parser.add_argument("--ollama-host", type=str, default="http://localhost:11434",
+                      help="Ollama API host URL")
+    parser.add_argument("--fallback", action="store_true",
+                      help="Use file-based fallback for memory (no vector DB)")
+    parser.add_argument("--debug", action="store_true",
+                      help="Enable debug logging")
+    return parser.parse_args()
+
+def cleanup():
+    """Cleanup function to terminate child processes on exit."""
+    global engram_process, ollama_process
+    
+    logger.info("Shutting down servers...")
+    
+    if engram_process:
+        logger.info("Terminating Engram MCP server")
+        try:
+            os.killpg(os.getpgid(engram_process.pid), signal.SIGTERM)
+        except:
+            pass
+    
+    if ollama_process:
+        logger.info("Terminating Ollama MCP server")
+        try:
+            os.killpg(os.getpgid(ollama_process.pid), signal.SIGTERM)
+        except:
+            pass
+    
+    logger.info("Shutdown complete")
+
+def start_engram_mcp(args):
+    """Start the Engram MCP server."""
+    global engram_process
+    
+    engram_mcp_path = os.path.join(script_dir, "engram_mcp")
+    
+    # Check if the script exists
+    if not os.path.exists(engram_mcp_path):
+        logger.error(f"Could not find Engram MCP launcher at {engram_mcp_path}")
+        return None
+    
+    # Build command
+    cmd = [
+        engram_mcp_path,
+        "--client-id", args.client_id,
+        "--port", str(args.engram_port),
+        "--host", args.host
+    ]
+    
+    if args.data_dir:
+        cmd.extend(["--data-dir", args.data_dir])
+    
+    if args.fallback:
+        cmd.append("--fallback")
+    
+    if args.debug:
+        cmd.append("--debug")
+    
+    logger.info(f"Starting Engram MCP server: {' '.join(cmd)}")
+    
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            preexec_fn=os.setsid
+        )
+        
+        logger.info(f"Engram MCP server started with PID {process.pid}")
+        
+        # Start a thread to monitor the process output
+        from threading import Thread
+        
+        def monitor_output(process, name):
+            for line in process.stdout:
+                logger.info(f"[{name}] {line.strip()}")
+        
+        Thread(target=monitor_output, args=(process, "Engram MCP"), daemon=True).start()
+        
+        # Wait a bit to make sure it started successfully
+        time.sleep(2)
+        if process.poll() is not None:
+            logger.error(f"Engram MCP server failed to start (exit code {process.returncode})")
+            return None
+        
+        return process
+    
+    except Exception as e:
+        logger.error(f"Error starting Engram MCP server: {e}")
+        return None
+
+def start_ollama_mcp(args):
+    """Start the Ollama MCP server."""
+    global ollama_process
+    
+    ollama_mcp_path = os.path.join(script_dir, "ollama_mcp")
+    
+    # Check if the script exists
+    if not os.path.exists(ollama_mcp_path):
+        logger.error(f"Could not find Ollama MCP launcher at {ollama_mcp_path}")
+        return None
+    
+    # Build command
+    cmd = [
+        ollama_mcp_path,
+        "--client-id", args.client_id,
+        "--port", str(args.ollama_port),
+        "--host", args.host,
+        "--ollama-host", args.ollama_host
+    ]
+    
+    if args.debug:
+        cmd.append("--debug")
+    
+    logger.info(f"Starting Ollama MCP server: {' '.join(cmd)}")
+    
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            preexec_fn=os.setsid
+        )
+        
+        logger.info(f"Ollama MCP server started with PID {process.pid}")
+        
+        # Start a thread to monitor the process output
+        from threading import Thread
+        
+        def monitor_output(process, name):
+            for line in process.stdout:
+                logger.info(f"[{name}] {line.strip()}")
+        
+        Thread(target=monitor_output, args=(process, "Ollama MCP"), daemon=True).start()
+        
+        # Wait a bit to make sure it started successfully
+        time.sleep(2)
+        if process.poll() is not None:
+            logger.error(f"Ollama MCP server failed to start (exit code {process.returncode})")
+            return None
+        
+        return process
+    
+    except Exception as e:
+        logger.error(f"Error starting Ollama MCP server: {e}")
+        return None
+
+def make_executable(path):
+    """Make a file executable."""
+    try:
+        mode = os.stat(path).st_mode
+        mode |= (mode & 0o444) >> 2  # Copy read bits to execute bits
+        os.chmod(path, mode)
+        logger.info(f"Made {path} executable")
+    except Exception as e:
+        logger.error(f"Failed to make {path} executable: {e}")
+
+def main():
+    """Main function to launch both servers."""
+    global engram_process, ollama_process
+    
+    args = parse_args()
+    
+    # Set log level based on debug flag
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
+    
+    # Make sure the launcher scripts are executable
+    make_executable(os.path.join(script_dir, "engram_mcp"))
+    make_executable(os.path.join(script_dir, "ollama_mcp"))
+    
+    # Register cleanup handler
+    atexit.register(cleanup)
+    
+    # Handle signals
+    for sig in [signal.SIGTERM, signal.SIGINT]:
+        signal.signal(sig, lambda s, f: (cleanup(), sys.exit(0)))
+    
+    # Start Engram MCP server
+    engram_process = start_engram_mcp(args)
+    if not engram_process:
+        logger.error("Failed to start Engram MCP server, exiting")
+        sys.exit(1)
+    
+    # Start Ollama MCP server
+    ollama_process = start_ollama_mcp(args)
+    if not ollama_process:
+        logger.error("Failed to start Ollama MCP server, exiting")
+        cleanup()
+        sys.exit(1)
+    
+    logger.info(f"Both servers started successfully!")
+    logger.info(f"Engram MCP server running on {args.host}:{args.engram_port}")
+    logger.info(f"Ollama MCP server running on {args.host}:{args.ollama_port}")
+    logger.info("Press Ctrl+C to stop both servers")
+    
+    # Keep the main process running
+    try:
+        while True:
+            # Check if either process has exited
+            if engram_process.poll() is not None:
+                logger.error(f"Engram MCP server exited unexpectedly with code {engram_process.returncode}")
+                cleanup()
+                sys.exit(1)
+            
+            if ollama_process.poll() is not None:
+                logger.error(f"Ollama MCP server exited unexpectedly with code {ollama_process.returncode}")
+                cleanup()
+                sys.exit(1)
+            
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, shutting down...")
+        cleanup()
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()

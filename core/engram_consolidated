@@ -1,0 +1,199 @@
+#!/bin/bash
+# Engram Consolidated Startup Script
+# This script starts the consolidated memory bridge service from any directory
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." &> /dev/null && pwd )"
+
+# Default values - these can be overridden by config file
+PORT=8000
+HOST="127.0.0.1"
+DATA_DIR="$HOME/.engram"
+CONFIG_PATH=""
+LOG_FILE="$PROJECT_ROOT/logs/engram_server.log"
+RUN_IN_BACKGROUND=false
+
+# Color output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --data-dir)
+      DATA_DIR="$2"
+      shift 2
+      ;;
+    --config)
+      CONFIG_PATH="$2"
+      shift 2
+      ;;
+    --log-file)
+      LOG_FILE="$2"
+      shift 2
+      ;;
+    --fallback)
+      USE_FALLBACK=true
+      shift
+      ;;
+    --no-auto-agency)
+      NO_AUTO_AGENCY=true
+      shift
+      ;;
+    --debug)
+      DEBUG=true
+      shift
+      ;;
+    --background)
+      RUN_IN_BACKGROUND=true
+      shift
+      ;;
+    --help)
+      echo -e "${BLUE}${BOLD}Engram Consolidated Server${NC}"
+      echo "Usage: engram_consolidated [options]"
+      echo ""
+      echo "Options:"
+      echo "  --port <port>      Port to run the server on (default: 8000)"
+      echo "  --host <host>      Host to bind the server to (default: 127.0.0.1)"
+      echo "  --data-dir <dir>   Directory to store memory data (default: ~/.engram)"
+      echo "  --config <path>    Path to configuration file"
+      echo "  --log-file <path>  Path to log file (default: ./logs/engram_server.log)"
+      echo "  --fallback         Force use of fallback file-based implementation"
+      echo "  --no-auto-agency   Disable automatic agency activation"
+      echo "  --debug            Enable debug mode"
+      echo "  --background       Run server in background"
+      echo "  --help             Show this help message"
+      echo ""
+      echo "Note: Command line options override settings in the configuration file."
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run with --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Make sure the data directory exists
+mkdir -p "$DATA_DIR"
+
+# Make sure the logs directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Check for virtual environment
+if [ -d "$SCRIPT_DIR/venv" ]; then
+    echo -e "${GREEN}Activating virtual environment...${NC}"
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
+# Message about the server
+echo -e "${BLUE}${BOLD}Starting Engram Consolidated Server${NC}"
+echo -e "${BLUE}Server:${NC} $HOST:$PORT"
+echo -e "${BLUE}Data directory:${NC} $DATA_DIR"
+echo -e "${BLUE}Log file:${NC} $LOG_FILE"
+echo ""
+echo -e "${YELLOW}This server combines memory service and HTTP wrapper on a single port${NC}"
+echo -e "${YELLOW}Access the API at:${NC}"
+echo "  - Core Memory API: http://$HOST:$PORT/memory/*"
+echo "  - HTTP Wrapper API: http://$HOST:$PORT/http/*"
+echo "  - Nexus API: http://$HOST:$PORT/nexus/*"
+echo "  - Structured Memory API: http://$HOST:$PORT/structured/*"
+echo "  - Client Management: http://$HOST:$PORT/clients/*"
+echo ""
+
+# Set PYTHONPATH to include project root
+export PYTHONPATH=$PROJECT_ROOT:$PYTHONPATH
+echo -e "${YELLOW}Setting PYTHONPATH to include: $PROJECT_ROOT${NC}"
+
+# Build command with all available options
+# Use engram module
+CMD="python -m engram.api.consolidated_server"
+
+# Verify the module can be found
+echo -e "${YELLOW}Verifying engram module can be imported...${NC}"
+if ! python -c "import engram" 2>/dev/null; then
+    echo -e "${RED}Error: Cannot import engram module. Installing it now...${NC}"
+    pip install -e "$PROJECT_ROOT" --quiet
+    if ! python -c "import engram" 2>/dev/null; then
+        echo -e "${RED}Failed to install engram module. Aborting.${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}Successfully installed engram module.${NC}"
+    fi
+else
+    echo -e "${GREEN}Successfully imported engram module.${NC}"
+fi
+
+# Add config file if specified
+if [ -n "$CONFIG_PATH" ]; then
+    CMD="$CMD --config $CONFIG_PATH"
+fi
+
+# Add other options
+CMD="$CMD --port $PORT --host $HOST --data-dir $DATA_DIR"
+
+# Add flags
+if [ "$NO_AUTO_AGENCY" = true ]; then
+    CMD="$CMD --no-auto-agency"
+fi
+
+if [ "$DEBUG" = true ]; then
+    CMD="$CMD --debug"
+fi
+
+# Check for vector database dependencies
+if [ "$USE_FALLBACK" != true ]; then
+    echo -e "${YELLOW}Checking for vector database dependencies...${NC}"
+    if ! python -c "import faiss" >/dev/null 2>&1; then
+        echo -e "${YELLOW}FAISS not found, using fallback mode${NC}"
+        export ENGRAM_USE_FALLBACK=1
+    else
+        echo -e "${GREEN}FAISS found - enabling vector search${NC}"
+        # Make absolutely sure we're not using fallback mode
+        export ENGRAM_USE_FALLBACK=0
+    fi
+fi
+
+# Set fallback environment variable if requested
+if [ "$USE_FALLBACK" = true ]; then
+    echo -e "${YELLOW}Using fallback memory implementation (no vector database)${NC}"
+    export ENGRAM_USE_FALLBACK=1
+fi
+
+# Check if running in background
+if [ "$RUN_IN_BACKGROUND" = true ]; then
+    echo -e "${YELLOW}Running server in background mode${NC}"
+    echo -e "${YELLOW}Output will be redirected to: $LOG_FILE${NC}"
+    echo -e "${YELLOW}Use 'tail -f $LOG_FILE' to view logs${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to exit this shell (server will continue running)${NC}"
+    
+    # Start in background
+    TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+    nohup $CMD > "$LOG_FILE" 2>&1 &
+    
+    # Show PID
+    SERVER_PID=$!
+    echo -e "${GREEN}Server started with PID: $SERVER_PID${NC}"
+else
+    echo -e "${YELLOW}Running server in foreground mode${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
+    echo ""
+    
+    # Start the server in foreground
+    $CMD
+fi

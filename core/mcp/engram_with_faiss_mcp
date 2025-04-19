@@ -1,0 +1,109 @@
+#!/bin/bash
+# Engram MCP launcher with FAISS vector database support
+# This script integrates Engram MCP server with FAISS for vector operations
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# ANSI color codes for terminal output
+BLUE="\033[94m"
+GREEN="\033[92m"
+YELLOW="\033[93m"
+RED="\033[91m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+# Default settings
+CLIENT_ID="claude"
+PORT=8001
+HOST="127.0.0.1"
+DATA_DIR="$HOME/.engram"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --client-id)
+      CLIENT_ID="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --data-dir)
+      DATA_DIR="$2"
+      shift 2
+      ;;
+    --help)
+      echo -e "${BLUE}${BOLD}Engram MCP with FAISS${RESET}"
+      echo "Usage: engram_with_faiss_mcp [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --client-id <id>   Client ID for memory service (default: claude)"
+      echo "  --port <port>      Port to run the server on (default: 8001)"
+      echo "  --host <host>      Host to bind the server to (default: 127.0.0.1)"
+      echo "  --data-dir <dir>   Directory to store memory data (default: ~/.engram)"
+      echo "  --help             Show this help message"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run with --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Check if FAISS is available
+python -c "import faiss" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo -e "${YELLOW}FAISS not installed. Installing...${RESET}"
+    pip install faiss-cpu
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to install FAISS. Exiting.${RESET}"
+        exit 1
+    fi
+fi
+
+# Import path setup
+export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
+
+# Check for CUDA for GPU acceleration
+CUDA_AVAILABLE=$(python -c "import torch; print(torch.cuda.is_available())" 2>/dev/null)
+if [ "$CUDA_AVAILABLE" == "True" ]; then
+    echo -e "${GREEN}CUDA detected, checking for FAISS-GPU...${RESET}"
+    python -c "import faiss; print('GPU in FAISS:', faiss.get_num_gpus())" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}FAISS with GPU support is available!${RESET}"
+    else
+        echo -e "${YELLOW}FAISS with GPU support not detected. Using CPU version.${RESET}"
+    fi
+fi
+
+# Run Engram MCP server with FAISS integration
+echo -e "${BLUE}Starting Engram MCP server with FAISS vector database...${RESET}"
+
+# Make sure the MCP script is executable
+chmod +x "$SCRIPT_DIR/engram_mcp"
+
+# Set environment variable to indicate we're using FAISS
+export ENGRAM_USE_VECTORDB="faiss"
+export ENGRAM_USE_FALLBACK="0"
+
+# Launch MCP server
+echo -e "${GREEN}Launching Engram MCP server on $HOST:$PORT${RESET}"
+echo -e "${GREEN}Client ID: $CLIENT_ID${RESET}"
+echo -e "${GREEN}Data Directory: $DATA_DIR${RESET}"
+
+# Launch the MCP server
+"$SCRIPT_DIR/engram_mcp" \
+    --client-id "$CLIENT_ID" \
+    --port "$PORT" \
+    --host "$HOST" \
+    --data-dir "$DATA_DIR"

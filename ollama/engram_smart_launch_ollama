@@ -1,0 +1,13 @@
+#!/bin/bash
+# Engram Smart Launcher with Ollama
+# Automatically selects the best vector database and launches Engram with Ollama
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Make helper script executable
+chmod +x "$SCRIPT_DIR/utils/launch_best_vector_db.sh"
+
+# Execute the smart launcher with Ollama flag, passing all other arguments
+exec "$SCRIPT_DIR/utils/launch_best_vector_db.sh" --ollama "$@"

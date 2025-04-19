@@ -1,0 +1,13 @@
+fastapi>=0.103.1
+uvicorn>=0.23.2
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.4.2
+faiss-cpu>=1.7.4
+flask>=2.3.0
+flask-wtf>=1.2.0
+bootstrap-flask>=2.3.0  # Primary bootstrap package 
+flask-bootstrap>=3.3.7.1  # Alternative bootstrap package
+pandas>=2.0.0
+plotly>=5.18.0
+cryptography>=44.0.0

@@ -1,0 +1,129 @@
+#!/bin/bash
+# Engram Smart MCP Launcher
+# Automatically detects the best vector database for your system and launches MCP server
+
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# ANSI color codes for terminal output
+BLUE="\033[94m"
+GREEN="\033[92m"
+YELLOW="\033[93m"
+RED="\033[91m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+# Default settings
+CLIENT_ID="claude"
+PORT=8001
+HOST="127.0.0.1"
+DATA_DIR="$HOME/.engram"
+FORCE_FALLBACK=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --client-id)
+      CLIENT_ID="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --data-dir)
+      DATA_DIR="$2"
+      shift 2
+      ;;
+    --fallback)
+      FORCE_FALLBACK=true
+      shift
+      ;;
+    --help)
+      echo -e "${BLUE}${BOLD}Engram Smart MCP Launcher${RESET}"
+      echo "Usage: engram_smart_launch_mcp [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --client-id <id>   Client ID for memory service (default: claude)"
+      echo "  --port <port>      Port to run the MCP server on (default: 8001)"
+      echo "  --host <host>      Host to bind the server to (default: 127.0.0.1)"
+      echo "  --data-dir <dir>   Directory to store memory data (default: ~/.engram)"
+      echo "  --fallback         Force file-based fallback mode (no vector database)"
+      echo "  --help             Show this help message"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run with --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Make helper scripts executable
+chmod +x "$SCRIPT_DIR/utils/detect_best_vector_db.py" 2>/dev/null
+
+# Create the command array with common arguments
+CMD_ARGS=(
+    "--client-id" "$CLIENT_ID"
+    "--port" "$PORT"
+    "--host" "$HOST"
+)
+
+if [ -n "$DATA_DIR" ]; then
+    CMD_ARGS+=("--data-dir" "$DATA_DIR")
+fi
+
+# Detect best vector database or use fallback
+if [ "$FORCE_FALLBACK" = true ]; then
+    echo -e "${YELLOW}Forcing file-based fallback mode (no vector database)${RESET}"
+    # Use basic MCP with fallback flag
+    CMD=("$SCRIPT_DIR/engram_mcp" "${CMD_ARGS[@]}" "--fallback")
+else
+    echo -e "${BLUE}Detecting optimal vector database for your system...${RESET}"
+    
+    if [ -f "$SCRIPT_DIR/utils/detect_best_vector_db.py" ]; then
+        # Run detection script to determine the best DB
+        DB_INFO=$(python "$SCRIPT_DIR/utils/detect_best_vector_db.py" --quiet)
+        DB_AVAILABLE=$?
+        
+        if [ $DB_AVAILABLE -eq 0 ] && [ -n "$DB_INFO" ]; then
+            # Extract the database name from the path
+            DB_NAME=$(basename "$DB_INFO" | sed 's/engram_with_//' | sed 's/_ollama//' | sed 's/_faiss//' | sed 's/_lancedb//')
+            
+            if [[ "$DB_INFO" == *"lancedb"* ]]; then
+                echo -e "${GREEN}Using LanceDB vector database (optimal for your hardware)${RESET}"
+                CMD=("$SCRIPT_DIR/engram_with_lancedb_mcp" "${CMD_ARGS[@]}")
+            elif [[ "$DB_INFO" == *"faiss"* ]]; then
+                echo -e "${GREEN}Using FAISS vector database (optimal for your hardware)${RESET}"
+                CMD=("$SCRIPT_DIR/engram_with_faiss_mcp" "${CMD_ARGS[@]}")
+            else
+                echo -e "${YELLOW}No optimal vector database detected, using file-based memory${RESET}"
+                CMD=("$SCRIPT_DIR/engram_mcp" "${CMD_ARGS[@]}" "--fallback")
+            fi
+        else
+            echo -e "${YELLOW}Vector database detection failed, using file-based memory${RESET}"
+            CMD=("$SCRIPT_DIR/engram_mcp" "${CMD_ARGS[@]}" "--fallback")
+        fi
+    else
+        echo -e "${YELLOW}Vector database detection script not found, using file-based memory${RESET}"
+        CMD=("$SCRIPT_DIR/engram_mcp" "${CMD_ARGS[@]}" "--fallback")
+    fi
+fi
+
+# Print banner
+echo -e "${BOLD}${BLUE}===== Engram MCP Smart Launcher =====${RESET}"
+echo -e "${GREEN}Launching Engram MCP server on $HOST:$PORT${RESET}"
+echo -e "${GREEN}Client ID: $CLIENT_ID${RESET}"
+echo -e "${GREEN}Data Directory: $DATA_DIR${RESET}"
+echo ""
+
+# Launch the selected command
+echo -e "${YELLOW}Executing: ${CMD[*]}${RESET}"
+"${CMD[@]}"

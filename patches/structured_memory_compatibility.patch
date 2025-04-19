@@ -1,0 +1,28 @@
+--- engram/core/structured_memory.py.orig
++++ engram/core/structured_memory.py
+@@ -268,6 +268,25 @@
+             logger.error(f"Error retrieving memory {memory_id}: {e}")
+             return None
+             
++    # Compatibility method for Agenteer
++    async def get_memories_by_category(self, category: str, limit: int = 10) -> List[Dict[str, Any]]:
++        """
++        Get memories by category (compatibility method for Agenteer).
++        
++        Args:
++            category: The category to retrieve memories from
++            limit: Maximum number of memories to retrieve
++            
++        Returns:
++            List of memory objects
++        """
++        try:
++            # Delegate to search_memories with the category filter
++            return await self.search_memories(categories=[category], limit=limit)
++        except Exception as e:
++            logger.error(f"Error retrieving memories by category: {e}")
++            return []
++            
+     async def search_memories(self, 
+                             query: str = None, 
+                             categories: List[str] = None,
