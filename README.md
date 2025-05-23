@@ -1,6 +1,5 @@
 # Engram
 
-
 ## Overview
 
 Engram is the persistent memory system for the Tekton ecosystem. It provides storage, retrieval, and semantic search capabilities across all components, enabling context preservation and knowledge management.
